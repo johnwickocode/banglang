@@ -2,12 +2,18 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const EMBEDDED_BCL: &[u8] = include_bytes!("../../../build/bcl");
 const EMBEDDED_RT: &[u8] = include_bytes!("../../target/release/libbangla_ffi.a");
 const EMBEDDED_RAYLIB: &[u8] = include_bytes!("../../../raylib-6.2_linux_amd64/lib/libraylib.a");
+
+// WebAssembly target (`--wasm`): raylib's PLATFORM_WEB build plus a C copy of
+// the runtime in src/lib.rs (compiled by emcc, so no Rust wasm toolchain needed).
+const EMBEDDED_RAYLIB_WEB: &[u8] =
+    include_bytes!("../../../raylib-6.2_webassembly/lib/libraylib.web.a");
+const WASM_RT_C: &str = include_str!("../../runtime/bangla_rt.c");
 
 struct FfiEntry {
     bangla_name: &'static str,
@@ -238,26 +244,86 @@ fn patch_ir(ir: &str, map: &HashMap<String, String>) -> String {
     cleaned
 }
 
+/// Link the patched IR + C runtime + raylib(web) into .html/.js/.wasm with emcc.
+fn link_wasm(work_dir: &Path, ll_path: &Path, out: &Path) -> Result<(), String> {
+    let rt_c = work_dir.join("bangla_rt.c");
+    fs::write(&rt_c, WASM_RT_C).map_err(|e| format!("cannot write runtime: {e}"))?;
+    let web_lib = work_dir.join("libraylib.web.a");
+    fs::write(&web_lib, EMBEDDED_RAYLIB_WEB).map_err(|e| format!("cannot write raylib: {e}"))?;
+
+    let status = Command::new("emcc")
+        .current_dir(work_dir)
+        .arg(ll_path)
+        .arg(&rt_c)
+        .arg(&web_lib)
+        .args([
+            "-O2",
+            "-Wno-override-module",
+            "-sUSE_GLFW=3",
+            // BangLang programs are a blocking `while` loop; ASYNCIFY lets that
+            // loop yield to the browser (raylib's frame wait uses emscripten_sleep).
+            "-sASYNCIFY",
+            "-sALLOW_MEMORY_GROWTH=1",
+            "-sINITIAL_MEMORY=67108864",
+            "-sSTACK_SIZE=1048576",
+            "-o",
+        ])
+        .arg(out)
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "emcc not found. Install the Emscripten SDK and run `source ./emsdk_env.sh` \
+                 in this shell first (https://emscripten.org/docs/getting_started/downloads.html)"
+                    .to_string()
+            } else {
+                format!("failed to run emcc: {e}")
+            }
+        })?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("emcc failed ({status})"))
+    }
+}
+
 fn main() {
 
     let args: Vec<String> = env::args().skip(1).collect();
     if args.is_empty() {
-        eprintln!("Usage: bangc <input.bgl> [-o <output>]");
+        eprintln!("Usage: bangc <input.bgl> [-o <output>] [--wasm]");
+        eprintln!("  --wasm   build for the browser with emcc (default output: bangla.html;");
+        eprintln!("           also chosen automatically when -o ends in .html, .js or .wasm)");
         std::process::exit(1);
     }
 
     let mut input_path: Option<PathBuf> = None;
     let mut output_path = PathBuf::from("program");
+    let mut output_given = false;
+    let mut wasm = false;
 
     let mut i = 0;
     while i < args.len() {
         if args[i] == "-o" && i + 1 < args.len() {
             i += 1;
             output_path = PathBuf::from(&args[i]);
+            output_given = true;
+        } else if args[i] == "--wasm" {
+            wasm = true;
         } else {
             input_path = Some(PathBuf::from(&args[i]));
         }
         i += 1;
+    }
+
+    if !wasm {
+        wasm = matches!(
+            output_path.extension().and_then(|e| e.to_str()),
+            Some("html") | Some("js") | Some("wasm")
+        );
+    }
+    if wasm && !output_given {
+        output_path = PathBuf::from("bangla.html");
     }
 
     let input_path = input_path.expect("Missing <input.bgl>");
@@ -274,10 +340,11 @@ fn main() {
     fs::set_permissions(&bcl_bin, fs::Permissions::from_mode(0o755)).unwrap();
 
     let rt_lib = work_dir.join("libbangla_ffi.a");
-    fs::write(&rt_lib, EMBEDDED_RT).unwrap();
-
     let raylib_a = work_dir.join("libraylib.a");
-    fs::write(&raylib_a, EMBEDDED_RAYLIB).unwrap();
+    if !wasm {
+        fs::write(&rt_lib, EMBEDDED_RT).unwrap();
+        fs::write(&raylib_a, EMBEDDED_RAYLIB).unwrap();
+    }
 
     let combined_bgl = work_dir.join("input.bgl");
     fs::write(&combined_bgl, combined).unwrap();
@@ -301,6 +368,20 @@ fn main() {
     } else {
         env::current_dir().unwrap().join(output_path)
     };
+
+    if wasm {
+        let result = link_wasm(&work_dir, &ll_path, &abs_out);
+        let _ = fs::remove_dir_all(&work_dir);
+        if let Err(msg) = result {
+            eprintln!("bangc: {msg}");
+            std::process::exit(1);
+        }
+        println!("Built {} (WebAssembly)", abs_out.display());
+        println!("Browsers won't load .wasm from file://, so serve the folder, e.g.:");
+        println!("  python3 -m http.server   # then open http://localhost:8000/{}",
+            abs_out.file_name().and_then(|n| n.to_str()).unwrap_or("bangla.html"));
+        return;
+    }
 
     let link = Command::new("clang")
         .arg(&ll_path)
