@@ -42,7 +42,11 @@ add_executable(bcl
     src/main.cpp
 )
 
-target_link_libraries(bcl ${llvm_libs})
+if(TARGET LLVM)
+    target_link_libraries(bcl LLVM)
+else()
+    target_link_libraries(bcl ${llvm_libs})
+endif()
 
 # Platform-specific linking
 if(WIN32)

@@ -1,0 +1,319 @@
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
+use std::process::Command;
+
+const EMBEDDED_BCL: &[u8] = include_bytes!("../../../build/bcl");
+const EMBEDDED_RT: &[u8] = include_bytes!("../../target/release/libbangla_ffi.a");
+const EMBEDDED_RAYLIB: &[u8] = include_bytes!("../../../raylib-6.2_linux_amd64/lib/libraylib.a");
+
+struct FfiEntry {
+    bangla_name: &'static str,
+    c_symbol: &'static str,
+    arity: usize,
+}
+
+// Now you can use natural Bangla (or ASCII) names here!
+const FFI_TABLE: &[FfiEntry] = &[
+    FfiEntry { bangla_name: "যোগকরো", c_symbol: "bl_add", arity: 2 },
+    FfiEntry { bangla_name: "তালিকাতৈরি", c_symbol: "bl_list_new", arity: 0 },
+    FfiEntry { bangla_name: "তালিকায়যোগ", c_symbol: "bl_list_push", arity: 2 },
+    FfiEntry { bangla_name: "তালিকাহতে", c_symbol: "bl_list_get", arity: 2 },
+    FfiEntry { bangla_name: "তালিকায়বসাও", c_symbol: "bl_list_set", arity: 3 },
+    FfiEntry { bangla_name: "তালিকাদৈর্ঘ্য", c_symbol: "bl_list_len", arity: 1 },
+    FfiEntry { bangla_name: "জানালাখোলো", c_symbol: "bl_init_window", arity: 2 },
+    FfiEntry { bangla_name: "জানালাবন্ধ", c_symbol: "bl_window_should_close", arity: 0 },
+    FfiEntry { bangla_name: "বন্ধকরো", c_symbol: "bl_close_window", arity: 0 },
+    FfiEntry { bangla_name: "গতিসেট", c_symbol: "bl_set_target_fps", arity: 1 },
+    FfiEntry { bangla_name: "আঁকাশুরু", c_symbol: "bl_begin_drawing", arity: 0 },
+    FfiEntry { bangla_name: "আঁকাশেষ", c_symbol: "bl_end_drawing", arity: 0 },
+    FfiEntry { bangla_name: "পটভূমিমুছো", c_symbol: "bl_clear_background", arity: 3 },
+    FfiEntry { bangla_name: "আয়তআঁকো", c_symbol: "bl_draw_rect", arity: 7 },
+    FfiEntry { bangla_name: "সংখ্যাআঁকো", c_symbol: "bl_draw_number", arity: 7 },
+    FfiEntry { bangla_name: "বোতামচাপা", c_symbol: "bl_is_key_pressed", arity: 1 },
+    FfiEntry { bangla_name: "এলোমেলো", c_symbol: "bl_random", arity: 2 },
+];
+
+const KEYWORDS: &[&str] = &[
+    "সংখ্যা", "দশমিক", "স্ট্রিং", "বুলিয়ান", "যদি", "নাহলে",
+    "যতক্ষণ", "ফাংশন", "ফিরিয়ে", "দাও", "দেখাও", "সত্য",
+    "মিথ্যা", "এবং", "অথবা", "না",
+];
+
+fn encode_safe_id(mut n: usize) -> String {
+    const SAFE: &[char] = &['ক', 'খ', 'গ', 'ঘ', 'ঙ', 'চ', 'ছ', 'জ', 'ঝ', 'ট'];
+    let mut out = String::from("ক");
+    if n == 0 {
+        out.push(SAFE[0]);
+        return out;
+    }
+    let mut digits = Vec::new();
+    while n > 0 {
+        digits.push(SAFE[n % SAFE.len()]);
+        n /= SAFE.len();
+    }
+    for d in digits.into_iter().rev() {
+        out.push(d);
+    }
+    out
+}
+
+fn llvm_escape(name: &str) -> String {
+    name.as_bytes().iter().map(|b| format!("\\{:02X}", b)).collect()
+}
+
+fn strip_comments(src: &str) -> String {
+    let mut out = String::new();
+    for line in src.lines() {
+        let mut in_str = false;
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '"' {
+                in_str = !in_str;
+                out.push(c);
+            } else if !in_str && c == '/' && chars.peek() == Some(&'/') {
+                break;
+            } else {
+                out.push(c);
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn desugar_void_calls(src: &str) -> String {
+    let mut out = String::new();
+    let mut tmp_counter = 0usize;
+    for line in src.lines() {
+        let t = line.trim();
+        let is_stmt_keyword = t.starts_with("সংখ্যা ")
+            || t.starts_with("দশমিক ")
+            || t.starts_with("স্ট্রিং ")
+            || t.starts_with("বুলিয়ান ")
+            || t.starts_with("যদি")
+            || t.starts_with("নাহলে")
+            || t.starts_with("যতক্ষণ")
+            || t.starts_with("ফাংশন ")
+            || t.starts_with("ফিরিয়ে ")
+            || t.starts_with("দেখাও");
+
+        if !is_stmt_keyword && t.ends_with(");") && !t.contains('=') && t.contains('(') {
+            out.push_str(&format!("__void_sink = {t}\n"));
+            tmp_counter += 1;
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn is_ident_char(c: char) -> bool {
+    let is_bn_digit = ('\u{09E6}'..='\u{09EF}').contains(&c);
+    if is_bn_digit {
+        return false;
+    }
+    ('\u{0980}'..='\u{09FF}').contains(&c) || c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn preprocess_bgl(src: &str) -> (String, HashMap<String, String>) {
+    let with_sink = format!("সংখ্যা __void_sink = ০;\n{src}");
+    let no_comments = strip_comments(&with_sink);
+    let desugared = desugar_void_calls(&no_comments);
+
+    let mut map: HashMap<String, String> = HashMap::new();
+    let mut next_id = 0usize;
+
+    // Pre-register FFI names so we know their exact mangled names
+    for e in FFI_TABLE {
+        map.entry(e.bangla_name.to_string()).or_insert_with(|| {
+            let m = encode_safe_id(next_id);
+            next_id += 1;
+            m
+        });
+    }
+
+    let mut out = String::new();
+    let mut chars = desugared.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c == '"' {
+            out.push(chars.next().unwrap());
+            while let Some(sc) = chars.next() {
+                out.push(sc);
+                if sc == '"' {
+                    break;
+                }
+            }
+        } else if ('\u{09E6}'..='\u{09EF}').contains(&c) {
+            // Leave Bangla numbers untouched
+            while let Some(&dc) = chars.peek() {
+                if ('\u{09E6}'..='\u{09EF}').contains(&dc) || dc == '.' {
+                    out.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+        } else if is_ident_char(c) {
+            let mut word = String::new();
+            while let Some(&wc) = chars.peek() {
+                if is_ident_char(wc) {
+                    word.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            if KEYWORDS.contains(&word.as_str()) {
+                out.push_str(&word);
+            } else {
+                let mangled = map.entry(word).or_insert_with(|| {
+                    let m = encode_safe_id(next_id);
+                    next_id += 1;
+                    m
+                });
+                out.push_str(mangled);
+            }
+        } else {
+            out.push(chars.next().unwrap());
+        }
+    }
+
+    (out, map)
+}
+
+fn generate_stubs(map: &HashMap<String, String>) -> String {
+    let mut out = String::new();
+    let mut p_counter = 10_000usize;
+    for e in FFI_TABLE {
+        let mangled_fn = &map[e.bangla_name];
+        let params: Vec<String> = (0..e.arity)
+            .map(|_| {
+                let p = encode_safe_id(p_counter);
+                p_counter += 1;
+                format!("সংখ্যা {p}")
+            })
+            .collect();
+        out.push_str(&format!(
+            "ফাংশন {mangled_fn}({}) {{ ফিরিয়ে দাও ০; }};\n",
+            params.join(", ")
+        ));
+    }
+    out
+}
+
+fn patch_ir(ir: &str, map: &HashMap<String, String>) -> String {
+    let mut cleaned = String::new();
+    let mut skipping = false;
+
+    for line in ir.lines() {
+        if skipping {
+            if line.trim() == "}" {
+                skipping = false;
+            }
+            continue;
+        }
+        let is_stub = FFI_TABLE.iter().any(|e| {
+            let esc = llvm_escape(&map[e.bangla_name]);
+            line.starts_with(&format!("define i32 @\"{esc}\""))
+        });
+        if is_stub {
+            skipping = true;
+            continue;
+        }
+        cleaned.push_str(line);
+        cleaned.push('\n');
+    }
+
+    for e in FFI_TABLE {
+        let esc = llvm_escape(&map[e.bangla_name]);
+        cleaned = cleaned.replace(&format!("@\"{esc}\""), &format!("@{}", e.c_symbol));
+    }
+
+    for e in FFI_TABLE {
+        let args = vec!["i32"; e.arity].join(", ");
+        cleaned.push_str(&format!("\ndeclare i32 @{}({})\n", e.c_symbol, args));
+    }
+    cleaned
+}
+
+fn main() {
+
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.is_empty() {
+        eprintln!("Usage: bangc <input.bgl> [-o <output>]");
+        std::process::exit(1);
+    }
+
+    let mut input_path: Option<PathBuf> = None;
+    let mut output_path = PathBuf::from("program");
+
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-o" && i + 1 < args.len() {
+            i += 1;
+            output_path = PathBuf::from(&args[i]);
+        } else {
+            input_path = Some(PathBuf::from(&args[i]));
+        }
+        i += 1;
+    }
+
+    let input_path = input_path.expect("Missing <input.bgl>");
+    let user_src = fs::read_to_string(&input_path).expect("Could not read input .bgl file");
+
+    let (mangled_src, map) = preprocess_bgl(&user_src);
+    let combined = format!("{}\n{}", generate_stubs(&map), mangled_src);
+
+    let work_dir = env::temp_dir().join(format!("bangc_{}", std::process::id()));
+    fs::create_dir_all(&work_dir).unwrap();
+
+    let bcl_bin = work_dir.join("bcl");
+    fs::write(&bcl_bin, EMBEDDED_BCL).unwrap();
+    fs::set_permissions(&bcl_bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let rt_lib = work_dir.join("libbangla_ffi.a");
+    fs::write(&rt_lib, EMBEDDED_RT).unwrap();
+
+    let raylib_a = work_dir.join("libraylib.a");
+    fs::write(&raylib_a, EMBEDDED_RAYLIB).unwrap();
+
+    let combined_bgl = work_dir.join("input.bgl");
+    fs::write(&combined_bgl, combined).unwrap();
+
+    let status = Command::new(&bcl_bin)
+        .arg(&combined_bgl)
+        .current_dir(&work_dir)
+        .status()
+        .expect("Failed to run bcl");
+    if !status.success() {
+        let _ = fs::remove_dir_all(&work_dir);
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let ll_path = work_dir.join("output.ll");
+    let raw_ir = fs::read_to_string(&ll_path).expect("Missing output.ll");
+    fs::write(&ll_path, patch_ir(&raw_ir, &map)).unwrap();
+
+    let abs_out = if output_path.is_absolute() {
+        output_path
+    } else {
+        env::current_dir().unwrap().join(output_path)
+    };
+
+    let link = Command::new("clang")
+        .arg(&ll_path)
+        .arg(&rt_lib)
+        .arg(&raylib_a)
+        .args(["-lGL", "-lm", "-lpthread", "-ldl", "-lrt", "-lX11", "-o"])
+        .arg(&abs_out)
+        .status()
+        .expect("Failed to run clang");
+
+    let _ = fs::remove_dir_all(&work_dir);
+    if !link.success() {
+        std::process::exit(link.code().unwrap_or(1));
+    }
+    println!("Built {}", abs_out.display());
+}

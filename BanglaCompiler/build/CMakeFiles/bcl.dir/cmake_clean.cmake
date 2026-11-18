@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/bcl.dir/link.d"
   "CMakeFiles/bcl.dir/lex.yy.c.o"
   "CMakeFiles/bcl.dir/lex.yy.c.o.d"
   "CMakeFiles/bcl.dir/parser.tab.c.o"

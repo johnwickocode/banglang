@@ -35,8 +35,8 @@
    especially those whose name start with YY_ or yy_.  They are
    private implementation details that can be changed or removed.  */
 
-#ifndef YY_YY_HOME_J47_DOCUMENTS_COMPILER_COMPILER_DESIGN_BANGLACOMPILER_BUILD_PARSER_TAB_H_INCLUDED
-# define YY_YY_HOME_J47_DOCUMENTS_COMPILER_COMPILER_DESIGN_BANGLACOMPILER_BUILD_PARSER_TAB_H_INCLUDED
+#ifndef YY_YY_HOME_SAZIDC_PROJECTS_BANGLANG_ORIGINAL_BANGLACOMPILER_BUILD_PARSER_TAB_H_INCLUDED
+# define YY_YY_HOME_SAZIDC_PROJECTS_BANGLANG_ORIGINAL_BANGLACOMPILER_BUILD_PARSER_TAB_H_INCLUDED
 /* Debug traces.  */
 #ifndef YYDEBUG
 # define YYDEBUG 0
@@ -49,7 +49,7 @@ extern int yydebug;
 
     #include "ast.h"
 
-#line 53 "/home/j47/Documents/Compiler/Compiler-design/BanglaCompiler/build/parser.tab.h"
+#line 53 "/home/sazidc/Projects/banglang-original/BanglaCompiler/build/parser.tab.h"
 
 /* Token kinds.  */
 #ifndef YYTOKENTYPE
@@ -82,18 +82,22 @@ extern int yydebug;
     GT = 277,                      /* GT  */
     LT = 278,                      /* LT  */
     EQ = 279,                      /* EQ  */
-    PLUS = 280,                    /* PLUS  */
-    MINUS = 281,                   /* MINUS  */
-    MUL = 282,                     /* MUL  */
-    DIV = 283,                     /* DIV  */
-    AND = 284,                     /* AND  */
-    OR = 285,                      /* OR  */
-    INTEGER = 286,                 /* INTEGER  */
-    FLOATVAL = 287,                /* FLOATVAL  */
-    TRUE = 288,                    /* TRUE  */
-    FALSE = 289,                   /* FALSE  */
-    STRINGVAL = 290,               /* STRINGVAL  */
-    IDENTIFIER = 291               /* IDENTIFIER  */
+    GE = 280,                      /* GE  */
+    LE = 281,                      /* LE  */
+    NE = 282,                      /* NE  */
+    PLUS = 283,                    /* PLUS  */
+    MINUS = 284,                   /* MINUS  */
+    MUL = 285,                     /* MUL  */
+    DIV = 286,                     /* DIV  */
+    AND = 287,                     /* AND  */
+    OR = 288,                      /* OR  */
+    NOT = 289,                     /* NOT  */
+    INTEGER = 290,                 /* INTEGER  */
+    FLOATVAL = 291,                /* FLOATVAL  */
+    TRUE = 292,                    /* TRUE  */
+    FALSE = 293,                   /* FALSE  */
+    STRINGVAL = 294,               /* STRINGVAL  */
+    IDENTIFIER = 295               /* IDENTIFIER  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -110,7 +114,7 @@ union YYSTYPE
     char* sval;
     ASTNode* node;
 
-#line 114 "/home/j47/Documents/Compiler/Compiler-design/BanglaCompiler/build/parser.tab.h"
+#line 118 "/home/sazidc/Projects/banglang-original/BanglaCompiler/build/parser.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;
@@ -125,4 +129,4 @@ extern YYSTYPE yylval;
 int yyparse (void);
 
 
-#endif /* !YY_YY_HOME_J47_DOCUMENTS_COMPILER_COMPILER_DESIGN_BANGLACOMPILER_BUILD_PARSER_TAB_H_INCLUDED  */
+#endif /* !YY_YY_HOME_SAZIDC_PROJECTS_BANGLANG_ORIGINAL_BANGLACOMPILER_BUILD_PARSER_TAB_H_INCLUDED  */

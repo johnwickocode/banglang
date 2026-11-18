@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/sazidc/Projects/banglang-original/BanglaCompiler/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

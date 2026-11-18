@@ -20,7 +20,7 @@ class CodeGenerator {
     void createPrintBanglaFunction() {
         // Declare printf
         auto printfType = llvm::FunctionType::get(llvm::Type::getInt32Ty(context), 
-            {llvm::Type::getInt8Ty(context)->getPointerTo()}, true);
+            {llvm::PointerType::get(context, 0)}, true);
         auto printfFunc = module->getOrInsertFunction("printf", printfType);
 
         // Create print_bangla(int value) function
@@ -43,7 +43,7 @@ class CodeGenerator {
         std::vector<llvm::Value*> digitStrs;
         const char* banglaDigits[] = {"০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"};
         for (int i = 0; i < 10; i++) {
-            digitStrs.push_back(funcBuilder.CreateGlobalStringPtr(banglaDigits[i]));
+            digitStrs.push_back(funcBuilder.CreateGlobalString(banglaDigits[i]));
         }
 
         // Handle zero case
@@ -82,7 +82,7 @@ class CodeGenerator {
         funcBuilder.CreateCondBr(isNeg, minusStrBB, afterMinusBB);
         
         funcBuilder.SetInsertPoint(minusStrBB);
-        auto* minusStr = funcBuilder.CreateGlobalStringPtr("-");
+        auto* minusStr = funcBuilder.CreateGlobalString("-");
         funcBuilder.CreateCall(printfFunc, {minusStr});
         funcBuilder.CreateBr(afterMinusBB);
         
@@ -167,7 +167,7 @@ class CodeGenerator {
 
         // Exit
         funcBuilder.SetInsertPoint(exitBB);
-        auto* newlineStr = funcBuilder.CreateGlobalStringPtr("\n");
+        auto* newlineStr = funcBuilder.CreateGlobalString("\n");
         funcBuilder.CreateCall(printfFunc, {newlineStr});
         funcBuilder.CreateRetVoid();
     }
@@ -192,7 +192,7 @@ public:
         } else if (auto* floatNode = dynamic_cast<FloatNode*>(node)) {
             return llvm::ConstantFP::get(context, llvm::APFloat(floatNode->value));
         } else if (auto* stringNode = dynamic_cast<StringNode*>(node)) {
-            return builder.CreateGlobalStringPtr(stringNode->value);
+            return builder.CreateGlobalString(stringNode->value);
         } else if (auto* boolNode = dynamic_cast<BoolNode*>(node)) {
             return llvm::ConstantInt::get(context, llvm::APInt(1, boolNode->value));
         } else if (auto* varNode = dynamic_cast<VarNode*>(node)) {
@@ -205,7 +205,7 @@ public:
             llvm::Value* val = generate(assign->value);
             llvm::Type* type = assign->type == "int" ? llvm::Type::getInt32Ty(context) : 
                               assign->type == "float" ? llvm::Type::getFloatTy(context) : 
-                              llvm::Type::getInt8Ty(context)->getPointerTo();
+                              llvm::PointerType::get(context, 0);
             auto var = builder.CreateAlloca(type, nullptr, assign->var);
             builder.CreateStore(val, var);
             variables[assign->var] = var;
@@ -236,9 +236,9 @@ public:
             if (auto* strNode = dynamic_cast<StringNode*>(print->expr)) {
                 // String: use printf directly
                 auto printfType = llvm::FunctionType::get(llvm::Type::getInt32Ty(context), 
-                    {llvm::Type::getInt8Ty(context)->getPointerTo()}, true);
+                    {llvm::PointerType::get(context, 0)}, true);
                 auto printfFunc = module->getOrInsertFunction("printf", printfType);
-                auto fmtStr = builder.CreateGlobalStringPtr("%s\n");
+                auto fmtStr = builder.CreateGlobalString("%s\n");
                 builder.CreateCall(printfFunc, {fmtStr, val});
             } else {
                 // Integer: use print_bangla function for Bangla output
@@ -315,14 +315,14 @@ public:
             
             builder.SetInsertPoint(thenBB);
             generate(ifNode->thenBranch);
-            if (!builder.GetInsertBlock()->getTerminator()) {
+            if (!builder.GetInsertBlock()->hasTerminator()) {
                 builder.CreateBr(mergeBB);
             }
 
             if (elseBB) {
                 builder.SetInsertPoint(elseBB);
                 generate(ifNode->elseBranch);
-                if (!builder.GetInsertBlock()->getTerminator()) {
+                if (!builder.GetInsertBlock()->hasTerminator()) {
                     builder.CreateBr(mergeBB);
                 }
             }
@@ -345,7 +345,7 @@ public:
 
             builder.SetInsertPoint(bodyBB);
             generate(whileNode->body);
-            if (!builder.GetInsertBlock()->getTerminator()) {
+            if (!builder.GetInsertBlock()->hasTerminator()) {
                 builder.CreateBr(loopBB);
             }
 
@@ -378,7 +378,7 @@ public:
             generate(func->body);
             
             // Ensure function has a terminator
-            if (!builder.GetInsertBlock()->getTerminator()) {
+            if (!builder.GetInsertBlock()->hasTerminator()) {
                 builder.CreateRet(llvm::ConstantInt::get(context, llvm::APInt(32, 0)));
             }
             
@@ -406,7 +406,7 @@ public:
     }
 
     void finalize() { 
-        if (!builder.GetInsertBlock()->getTerminator()) {
+        if (!builder.GetInsertBlock()->hasTerminator()) {
             builder.CreateRet(llvm::ConstantInt::get(context, llvm::APInt(32, 0)));
         }
     }
