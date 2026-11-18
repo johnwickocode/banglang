@@ -25,6 +25,12 @@ unsafe extern "C" {
     fn DrawText(text: *const c_char, posX: c_int, posY: c_int, fontSize: c_int, color: Color);
     fn IsKeyPressed(key: c_int) -> bool;
     fn GetRandomValue(min: c_int, max: c_int) -> c_int;
+    fn IsMouseButtonDown(button: c_int) -> bool;
+    fn GetMouseX() -> c_int;
+    fn GetMouseY() -> c_int;
+    fn GetTouchPointCount() -> c_int;
+    fn GetTouchX() -> c_int;
+    fn GetTouchY() -> c_int;
 }
 
 #[unsafe(no_mangle)]
@@ -145,4 +151,19 @@ pub extern "C" fn bl_is_key_pressed(key: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn bl_random(min: i32, max: i32) -> i32 {
     unsafe { GetRandomValue(min, max) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bl_mouse_down() -> i32 {
+    if unsafe { IsMouseButtonDown(0) || GetTouchPointCount() > 0 } { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bl_mouse_x() -> i32 {
+    unsafe { if GetTouchPointCount() > 0 { GetTouchX() } else { GetMouseX() } }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bl_mouse_y() -> i32 {
+    unsafe { if GetTouchPointCount() > 0 { GetTouchY() } else { GetMouseY() } }
 }

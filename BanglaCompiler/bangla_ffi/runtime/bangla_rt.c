@@ -28,6 +28,12 @@ extern void DrawRectangle(int x, int y, int width, int height, Color color);
 extern void DrawText(const char *text, int x, int y, int fontSize, Color color);
 extern bool IsKeyPressed(int key);
 extern int GetRandomValue(int min, int max);
+extern bool IsMouseButtonDown(int button);
+extern int GetMouseX(void);
+extern int GetMouseY(void);
+extern int GetTouchPointCount(void);
+extern int GetTouchX(void);
+extern int GetTouchY(void);
 
 /* ---- lists (snake segments) ---- */
 
@@ -131,3 +137,15 @@ int bl_draw_number(int val, int x, int y, int size, int r, int g, int b) {
 
 int bl_is_key_pressed(int key) { return IsKeyPressed(key) ? 1 : 0; }
 int bl_random(int min, int max) { return GetRandomValue(min, max); }
+
+int bl_mouse_down(void) {
+    return (IsMouseButtonDown(0) || GetTouchPointCount() > 0) ? 1 : 0;
+}
+
+int bl_mouse_x(void) {
+    return (GetTouchPointCount() > 0) ? GetTouchX() : GetMouseX();
+}
+
+int bl_mouse_y(void) {
+    return (GetTouchPointCount() > 0) ? GetTouchY() : GetMouseY();
+}

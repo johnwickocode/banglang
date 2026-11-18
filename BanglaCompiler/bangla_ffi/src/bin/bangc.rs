@@ -40,6 +40,9 @@ const FFI_TABLE: &[FfiEntry] = &[
     FfiEntry { bangla_name: "সংখ্যাআঁকো", c_symbol: "bl_draw_number", arity: 7 },
     FfiEntry { bangla_name: "বোতামচাপা", c_symbol: "bl_is_key_pressed", arity: 1 },
     FfiEntry { bangla_name: "এলোমেলো", c_symbol: "bl_random", arity: 2 },
+    FfiEntry { bangla_name: "মাউসচাপা", c_symbol: "bl_mouse_down", arity: 0 },
+    FfiEntry { bangla_name: "মাউসএক্স", c_symbol: "bl_mouse_x", arity: 0 },
+    FfiEntry { bangla_name: "মাউসওয়াই", c_symbol: "bl_mouse_y", arity: 0 },
 ];
 
 const KEYWORDS: &[&str] = &[
